@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preços de imóveis em BH (ITBI)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --ink:#1c2430; --muted:#667085; --line:#e3e6ea; --panel:#ffffff; --accent:#1d4ed8; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
+  #map { position: absolute; inset: 0; background: #eef0f2; }
+
+  .card { background: var(--panel); border-radius: 10px; box-shadow: 0 2px 12px rgba(16,24,40,.18); }
+  #controls { position: absolute; z-index: 1000; top: 12px; left: 12px; width: 290px; padding: 14px; }
+  #controls h1 { font-size: 15px; margin: 0 0 2px; }
+  #controls .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 12px 0 6px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; background: #fff; padding: 7px 4px; font: inherit; font-size: 13px; cursor: pointer; color: var(--ink); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; color: var(--muted); }
+  .chip.on { background: #e8efff; border-color: #b8ccff; color: #173ea6; }
+  .linkbtn { border: 0; background: none; color: var(--accent); font: inherit; font-size: 11px; cursor: pointer; padding: 0; margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+  #legend { position: absolute; z-index: 1000; left: 12px; bottom: 22px; width: 290px; padding: 12px 14px; }
+  #legend .title { font-weight: 600; font-size: 13px; }
+  #legend .count { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  #ramp { height: 12px; border-radius: 6px; }
+  #ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  #legend .note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  #tip { position: absolute; z-index: 1200; pointer-events: none; display: none; padding: 8px 10px; font-size: 13px; white-space: nowrap; }
+  #tip .price { font-weight: 700; font-size: 15px; }
+  #tip .more { color: var(--muted); font-size: 11px; margin-top: 3px; }
+
+  #panel { position: absolute; z-index: 1100; top: 12px; right: 12px; bottom: 22px; width: min(720px, calc(100vw - 24px)); display: none; flex-direction: column; overflow: hidden; }
+  #panel.open { display: flex; }
+  #panel header { padding: 14px 44px 12px 16px; border-bottom: 1px solid var(--line); position: relative; }
+  #panel h2 { margin: 0; font-size: 16px; }
+  #panel .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  #panel .warn { font-size: 12px; color: #8a5a00; background: #fff6df; border-radius: 6px; padding: 5px 8px; margin-top: 8px; }
+  #close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: #f1f3f5; font-size: 18px; line-height: 1; cursor: pointer; }
+  #panel .body { overflow: auto; flex: 1; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th { position: sticky; top: 0; background: #f7f8fa; text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.wrap { white-space: normal; min-width: 110px; }
+  tr.off td { color: #a6adb8; }
+
+  @media (max-width: 700px) {
+    #controls { width: calc(100vw - 24px); }
+    #legend { width: calc(100vw - 24px); }
+    #panel { top: auto; height: 60vh; bottom: 0; right: 0; width: 100vw; border-radius: 12px 12px 0 0; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="controls" class="card">
+  <h1>Preços de imóveis em Belo Horizonte</h1>
+  <div class="sub">Valores declarados no ITBI · <span id="period"></span></div>
+
+  <div class="label">Colorir por</div>
+  <div class="seg" id="metric">
+    <button data-m="valor" class="on">Valor total</button>
+    <button data-m="m2">R$ por m²</button>
+  </div>
+
+  <div class="label">Ocupação</div>
+  <div class="chips" id="ocups"></div>
+
+  <div class="label">Tipo de construção
+    <button class="linkbtn" id="allTipos">todos</button><button class="linkbtn" id="noTipos">nenhum</button>
+  </div>
+  <div class="chips" id="tipos"></div>
+</div>
+
+<div id="legend" class="card">
+  <div class="title" id="legTitle"></div>
+  <div class="count" id="legCount"></div>
+  <div id="ramp"></div>
+  <div id="ticks"></div>
+  <div class="note">A escala se ajusta aos imóveis visíveis no mapa. Passe o mouse para ver a última transação; clique para ver todas.</div>
+</div>
+
+<div id="tip" class="card"></div>
+
+<div id="panel" class="card">
+  <header>
+    <h2 id="pAddr"></h2>
+    <div class="meta" id="pMeta"></div>
+    <div class="warn" id="pWarn" hidden></div>
+    <button id="close" aria-label="Fechar">×</button>
+  </header>
+  <div class="body">
+    <table>
+      <thead><tr>
+        <th>Data</th><th class="num">Valor</th><th class="num">Área (m²)</th><th class="num">R$/m²</th>
+        <th>Ano constr.</th><th>Tipo</th><th>Ocupação</th><th>Unidade</th>
+      </tr></thead>
+      <tbody id="pRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="data.js"></script>
+<script>
+(function () {
+  var D = window.ITBI;
+  // índices dentro de cada transação
+  var T_DATE = 0, T_VALOR = 1, T_AREA = 2, T_ANO = 3, T_TIPO = 4, T_OCUP = 5, T_COMPL = 6;
+
+  var TIPO_LABEL = {
+    AP: 'Apartamento', CA: 'Casa', SL: 'Sala', LJ: 'Loja', GP: 'Galpão', BA: 'Barracão',
+    LV: 'Lote vago', VC: 'Vaga de garagem (VC)', VR: 'Vaga de garagem (VR)'
+  };
+  var OCUP_LABEL = { 'RESIDENCIAL': 'Residencial', 'NAO RESIDENCIAL': 'Não residencial', 'TERRITORIAL': 'Territorial' };
+  function tipoLabel(i) { var c = D.tipos[i]; return TIPO_LABEL[c] || c; }
+  function ocupLabel(i) { var c = D.ocups[i]; return OCUP_LABEL[c] || c; }
+
+  // azul (baixo) -> vermelho escuro (alto)
+  var STOPS = [[43,92,214],[74,163,223],[160,214,200],[247,226,130],[245,158,66],[217,56,36],[122,6,10]];
+  function color(t) {
+    var x = Math.max(0, Math.min(1, t)) * (STOPS.length - 1), i = Math.min(STOPS.length - 2, Math.floor(x)), f = x - i;
+    var a = STOPS[i], b = STOPS[i + 1];
+    return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * f) + ',' + Math.round(a[1] + (b[1] - a[1]) * f) + ',' + Math.round(a[2] + (b[2] - a[2]) * f) + ')';
+  }
+  document.getElementById('ramp').style.background = 'linear-gradient(90deg,' +
+    STOPS.map(function (s) { return 'rgb(' + s.join(',') + ')'; }).join(',') + ')';
+
+  var brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+  var num = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 });
+  function fmtDate(d) { var s = String(d); return s.slice(6) + '/' + s.slice(4, 6) + '/' + s.slice(0, 4); }
+  function short(v) {
+    if (v >= 1e6) return (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: v >= 1e7 ? 0 : 1 }) + ' mi';
+    if (v >= 1e4) return Math.round(v / 1e3).toLocaleString('pt-BR') + ' mil';
+    return Math.round(v).toLocaleString('pt-BR');
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  // ---- estado ----
+  var state = { metric: 'valor', tipos: {}, ocups: {} };
+  D.tipos.forEach(function (_, i) { state.tipos[i] = true; });
+  D.ocups.forEach(function (_, i) { state.ocups[i] = true; });
+
+  function passes(t) { return state.tipos[t[T_TIPO]] && state.ocups[t[T_OCUP]]; }
+  function metricOf(t) {
+    if (state.metric === 'valor') return t[T_VALOR];
+    return t[T_AREA] > 0 ? t[T_VALOR] / t[T_AREA] : null;
+  }
+
+  // ---- mapa ----
+  var map = L.map('map', { preferCanvas: true, zoomControl: false, minZoom: 10 });
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  // Os tiles do openstreetmap.org exigem Referer e bloqueiam páginas abertas via file://;
+  // hospedado usa OSM, aberto direto do disco usa Esri
+  var local = location.protocol === 'file:';
+  L.tileLayer(local
+    ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: (local ? 'Mapa: Esri, HERE, Garmin, &copy; colaboradores do OpenStreetMap'
+      : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>') + ' · Dados: ITBI/PBH · Geocodificação: CNEFE/IBGE'
+  }).addTo(map);
+  var renderer = L.canvas({ padding: 0.3, tolerance: 3 });
+
+  function radiusFor(z) { return z <= 12 ? 2.6 : z <= 13 ? 3.4 : z <= 14 ? 4.5 : z <= 15 ? 6 : z <= 16 ? 7.5 : 9; }
+
+  var tip = document.getElementById('tip');
+  var selected = null;
+
+  // loc: {lat, lon, prec, addr, bairro, cep, ts, marker, value, last, n, shown}
+  var locs = D.locs.map(function (a) {
+    var loc = { lat: a[0], lon: a[1], prec: a[2], addr: a[3], bairro: a[4], cep: a[5], ts: a[6], shown: false, col: null };
+    loc.marker = L.circleMarker([loc.lat, loc.lon], {
+      renderer: renderer, radius: 3, stroke: false, fillOpacity: 0.82, fillColor: '#888', color: '#111', weight: 1
+    });
+    loc.marker.on('mouseover', function (e) { showTip(loc, e); });
+    loc.marker.on('mousemove', function (e) { moveTip(e); });
+    loc.marker.on('mouseout', function () { tip.style.display = 'none'; });
+    loc.marker.on('click', function (e) { L.DomEvent.stopPropagation(e); openPanel(loc); });
+    return loc;
+  });
+
+  var bounds = L.latLngBounds(locs.map(function (l) { return [l.lat, l.lon]; }));
+  map.fitBounds(bounds, { paddingTopLeft: [310, 10], paddingBottomRight: [10, 10] });
+
+  var minD = Infinity, maxD = 0;
+  locs.forEach(function (l) { l.ts.forEach(function (t) { if (t[0] < minD) minD = t[0]; if (t[0] > maxD) maxD = t[0]; }); });
+  document.getElementById('period').textContent = String(minD).slice(4, 6) + '/' + String(minD).slice(0, 4) + ' a ' + String(maxD).slice(4, 6) + '/' + String(maxD).slice(0, 4);
+
+  function median(arr) {
+    var s = arr.slice().sort(function (a, b) { return a - b; }), n = s.length;
+    return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  }
+
+  // Recalcula, para cada localização, as transações que passam no filtro e o valor usado na cor
+  function applyFilters() {
+    locs.forEach(function (loc) {
+      var vals = [], last = null, n = 0;
+      for (var i = 0; i < loc.ts.length; i++) {   // ts já vem da mais recente para a mais antiga
+        var t = loc.ts[i];
+        if (!passes(t)) continue;
+        n++;
+        if (!last) last = t;
+        var m = metricOf(t);
+        if (m != null) vals.push(m);
+      }
+      loc.n = n; loc.last = last;
+      loc.value = vals.length ? median(vals) : null;
+      var show = loc.value != null;
+      if (show && !loc.shown) loc.marker.addTo(map);
+      if (!show && loc.shown) map.removeLayer(loc.marker);
+      loc.shown = show;
+    });
+    rescale();
+    if (selected) openPanel(selected);
+  }
+
+  // Reescala as cores considerando só o que está visível
+  function rescale() {
+    var b = map.getBounds(), s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
+    var vis = [], vals = [], nTrans = 0;
+    for (var i = 0; i < locs.length; i++) {
+      var l = locs[i];
+      if (l.shown && l.lat >= s && l.lat <= n && l.lon >= w && l.lon <= e) { vis.push(l); vals.push(l.value); nTrans += l.n; }
+    }
+    vals.sort(function (a, b) { return a - b; });
+    var N = vals.length;
+    function rank(v) {   // posição percentual de v entre os visíveis (empates recebem a mesma cor)
+      if (N < 2) return 0.5;
+      var lo = 0, hi = N;
+      while (lo < hi) { var m = (lo + hi) >> 1; if (vals[m] < v) lo = m + 1; else hi = m; }
+      var first = lo; hi = N;
+      while (lo < hi) { var m2 = (lo + hi) >> 1; if (vals[m2] <= v) lo = m2 + 1; else hi = m2; }
+      return ((first + lo - 1) / 2) / (N - 1);
+    }
+    if (N && vals[0] === vals[N - 1]) rank = function () { return 0.5; };
+    for (var j = 0; j < vis.length; j++) {
+      var c = color(rank(vis[j].value));
+      if (c !== vis[j].col) { vis[j].col = c; vis[j].marker.setStyle({ fillColor: c }); }
+    }
+    // legenda
+    document.getElementById('legTitle').textContent = state.metric === 'valor' ? 'Valor declarado (R$)' : 'Valor por m² construído (R$)';
+    document.getElementById('legCount').textContent = N
+      ? N.toLocaleString('pt-BR') + ' endereços · ' + nTrans.toLocaleString('pt-BR') + ' transações na área visível'
+      : 'Nenhum imóvel na área visível';
+    var ticks = document.getElementById('ticks');
+    ticks.innerHTML = '';
+    if (N) [0, 0.25, 0.5, 0.75, 1].forEach(function (q) {
+      var sp = document.createElement('span');
+      sp.textContent = short(vals[Math.round(q * (N - 1))]);
+      ticks.appendChild(sp);
+    });
+  }
+
+  function restyleForZoom() {
+    var z = map.getZoom(), r = radiusFor(z), stroke = z >= 15;
+    locs.forEach(function (l) {
+      if (l === selected) return;
+      l.marker.setStyle({ stroke: stroke, opacity: 0.35, weight: 1 });
+      l.marker.setRadius(r);
+    });
+    if (selected) selected.marker.setRadius(r + 3);
+  }
+
+  // ---- tooltip (última transação) ----
+  function showTip(loc, e) {
+    var t = loc.last;
+    if (!t) return;
+    tip.innerHTML = '<div class="price">' + brl.format(t[T_VALOR]) + '</div>' +
+      '<div>' + fmtDate(t[T_DATE]) + ' · ' + (t[T_AREA] > 0 ? num.format(t[T_AREA]) + ' m² construídos' : 'sem área construída') + '</div>' +
+      (loc.n > 1 ? '<div class="more">Última de ' + loc.n + ' transações neste endereço · clique para ver todas</div>' : '<div class="more">Clique para ver detalhes</div>');
+    tip.style.display = 'block';
+    moveTip(e);
+  }
+  function moveTip(e) {
+    var p = e.containerPoint, w = tip.offsetWidth, h = tip.offsetHeight, W = map.getSize().x;
+    var x = p.x + 14, y = p.y - h - 10;
+    if (x + w > W - 8) x = p.x - w - 14;
+    if (y < 8) y = p.y + 16;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+
+  // ---- painel (todas as transações) ----
+  var panel = document.getElementById('panel');
+  function openPanel(loc) {
+    if (selected && selected !== loc) deselect();
+    selected = loc;
+    loc.marker.setStyle({ stroke: true, color: '#111', opacity: 1, weight: 3 });
+    loc.marker.setRadius(radiusFor(map.getZoom()) + 3);
+    loc.marker.bringToFront();
+    document.getElementById('pAddr').textContent = loc.addr;
+    var hidden = loc.ts.length - loc.n;
+    document.getElementById('pMeta').textContent = loc.bairro + ' · CEP ' + loc.cep + ' · ' + loc.ts.length +
+      (loc.ts.length > 1 ? ' transações' : ' transação') + (hidden ? ' (' + hidden + ' fora do filtro atual, em cinza)' : '');
+    var warn = document.getElementById('pWarn');
+    warn.hidden = loc.prec === 0;
+    warn.textContent = loc.prec === 1 ? 'Posição aproximada: número não encontrado na base do IBGE, usado o número mais próximo na mesma rua.'
+      : 'Posição aproximada: usado o centro do CEP.';
+    document.getElementById('pRows').innerHTML = loc.ts.map(function (t) {
+      return '<tr' + (passes(t) ? '' : ' class="off"') + '><td>' + fmtDate(t[T_DATE]) + '</td>' +
+        '<td class="num">' + brl.format(t[T_VALOR]) + '</td>' +
+        '<td class="num">' + (t[T_AREA] > 0 ? num.format(t[T_AREA]) : '–') + '</td>' +
+        '<td class="num">' + (t[T_AREA] > 0 ? brl.format(t[T_VALOR] / t[T_AREA]) : '–') + '</td>' +
+        '<td>' + (t[T_ANO] || '–') + '</td>' +
+        '<td>' + esc(tipoLabel(t[T_TIPO])) + '</td>' +
+        '<td>' + esc(ocupLabel(t[T_OCUP])) + '</td>' +
+        '<td class="wrap">' + esc(t[T_COMPL] || '–') + '</td></tr>';
+    }).join('');
+    panel.classList.add('open');
+    panel.querySelector('.body').scrollTop = 0;
+  }
+  function deselect() {
+    if (!selected) return;
+    var z = map.getZoom();
+    selected.marker.setStyle({ stroke: z >= 15, color: '#111', opacity: 0.35, weight: 1 });
+    selected.marker.setRadius(radiusFor(z));
+    selected = null;
+  }
+  function closePanel() { deselect(); panel.classList.remove('open'); }
+  document.getElementById('close').onclick = closePanel;
+  map.on('click', closePanel);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanel(); });
+
+  // ---- controles ----
+  document.querySelectorAll('#metric button').forEach(function (b) {
+    b.onclick = function () {
+      state.metric = b.dataset.m;
+      document.querySelectorAll('#metric button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      applyFilters();
+    };
+  });
+  function chips(el, names, labelFn, store) {
+    var counts = names.map(function () { return 0; });
+    var key = store === state.tipos ? T_TIPO : T_OCUP;
+    locs.forEach(function (l) { l.ts.forEach(function (t) { counts[t[key]]++; }); });
+    names.map(function (_, i) { return i; })
+      .filter(function (i) { return counts[i] > 1; })
+      .sort(function (a, b) { return counts[b] - counts[a]; })
+      .forEach(function (i) {
+        var b = document.createElement('button');
+        b.className = 'chip on'; b.dataset.i = i;
+        b.textContent = labelFn(i);
+        b.title = counts[i].toLocaleString('pt-BR') + ' transações';
+        b.onclick = function () { store[i] = !store[i]; b.classList.toggle('on', store[i]); applyFilters(); };
+        el.appendChild(b);
+      });
+  }
+  chips(document.getElementById('tipos'), D.tipos, tipoLabel, state.tipos);
+  chips(document.getElementById('ocups'), D.ocups, ocupLabel, state.ocups);
+  function setAllTipos(v) {
+    D.tipos.forEach(function (_, i) { state.tipos[i] = v; });
+    document.querySelectorAll('#tipos .chip').forEach(function (b) { b.classList.toggle('on', v); });
+    applyFilters();
+  }
+  document.getElementById('allTipos').onclick = function () { setAllTipos(true); };
+  document.getElementById('noTipos').onclick = function () { setAllTipos(false); };
+
+  // os painéis não devem repassar cliques/scroll para o mapa
+  ['controls', 'legend', 'panel'].forEach(function (id) {
+    var el = document.getElementById(id);
+    L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el);
+  });
+
+  map.on('moveend', rescale);
+  map.on('zoomend', restyleForZoom);
+  restyleForZoom();
+  applyFilters();
+})();
+</script>
+</body>
+</html>
