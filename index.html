@@ -43,6 +43,9 @@
   #panel h2 { margin: 0; font-size: 16px; }
   #panel .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
   #panel .warn { font-size: 12px; color: #8a5a00; background: #fff6df; border-radius: 6px; padding: 5px 8px; margin-top: 8px; }
+  #pLast { margin-top: 8px; padding: 7px 10px; background: #f3f6ff; border-radius: 6px; font-size: 13px; }
+  #pLast .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; display: block; }
+  #pLast b { font-size: 15px; }
   #close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: #f1f3f5; font-size: 18px; line-height: 1; cursor: pointer; }
   #panel .body { overflow: auto; flex: 1; }
   table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
@@ -52,10 +55,24 @@
   td.wrap { white-space: normal; min-width: 110px; }
   tr.off td { color: #a6adb8; }
 
+  /* minimizar filtros e legenda */
+  .card { position: relative; }
+  #controls h1, #legend .title, #legend .count { padding-right: 30px; }
+  .toggle { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border: 0; border-radius: 6px; background: #f1f3f5; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; }
+  .toggle svg { width: 14px; height: 14px; transition: transform .15s; }
+  .collapsed .toggle svg { transform: rotate(180deg); }
+  .collapsed .collapsible { display: none; }
+  #controls.collapsed { padding: 12px 14px; }
+  #controls.collapsed h1 { margin: 0; line-height: 22px; }
+  #legend.collapsed { padding: 10px 14px; }
+  #legend.collapsed .title { margin-bottom: 8px; }
+
   @media (max-width: 700px) {
-    #controls { width: calc(100vw - 24px); }
+    #controls { width: calc(100vw - 24px); max-height: calc(100vh - 150px); overflow: auto; }
+    #controls.collapsed { width: auto; max-width: calc(100vw - 24px); }
     #legend { width: calc(100vw - 24px); }
-    #panel { top: auto; height: 60vh; bottom: 0; right: 0; width: 100vw; border-radius: 12px 12px 0 0; }
+    #legend.collapsed { width: min(290px, calc(100vw - 24px)); }
+    #panel { top: auto; height: 52vh; bottom: 0; right: 0; width: 100vw; border-radius: 12px 12px 0 0; }
   }
 </style>
 </head>
@@ -63,7 +80,9 @@
 <div id="map"></div>
 
 <div id="controls" class="card">
+  <button class="toggle" aria-expanded="true" aria-label="Minimizar ou expandir filtros" title="Minimizar / expandir"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9l5-5 5 5"/></svg></button>
   <h1>Preços de imóveis em Belo Horizonte</h1>
+  <div class="collapsible">
   <div class="sub">Valores declarados no ITBI · <span id="period"></span></div>
 
   <div class="label">Colorir por</div>
@@ -79,14 +98,16 @@
     <button class="linkbtn" id="allTipos">todos</button><button class="linkbtn" id="noTipos">nenhum</button>
   </div>
   <div class="chips" id="tipos"></div>
+  </div>
 </div>
 
 <div id="legend" class="card">
+  <button class="toggle" aria-expanded="true" aria-label="Minimizar ou expandir legenda" title="Minimizar / expandir"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
   <div class="title" id="legTitle"></div>
-  <div class="count" id="legCount"></div>
+  <div class="count collapsible" id="legCount"></div>
   <div id="ramp"></div>
   <div id="ticks"></div>
-  <div class="note">A escala se ajusta aos imóveis visíveis no mapa. Passe o mouse para ver a última transação; clique para ver todas.</div>
+  <div class="note collapsible">A escala se ajusta aos imóveis visíveis no mapa. Passe o mouse (ou toque) para ver a última transação; clique para ver todas.</div>
 </div>
 
 <div id="tip" class="card"></div>
@@ -95,6 +116,7 @@
   <header>
     <h2 id="pAddr"></h2>
     <div class="meta" id="pMeta"></div>
+    <div id="pLast"></div>
     <div class="warn" id="pWarn" hidden></div>
     <button id="close" aria-label="Fechar">×</button>
   </header>
@@ -190,7 +212,21 @@
   });
 
   var bounds = L.latLngBounds(locs.map(function (l) { return [l.lat, l.lon]; }));
-  map.fitBounds(bounds, { paddingTopLeft: [310, 10], paddingBottomRight: [10, 10] });
+  var mobile = window.matchMedia('(max-width: 700px)').matches;
+  map.fitBounds(bounds, mobile ? { padding: [10, 10] } : { paddingTopLeft: [310, 10], paddingBottomRight: [10, 10] });
+
+  // ---- minimizar filtros e legenda (no celular começam minimizados) ----
+  document.querySelectorAll('.toggle').forEach(function (btn) {
+    var card = btn.parentNode, key = 'itbi-collapsed-' + card.id, saved = null;
+    try { saved = localStorage.getItem(key); } catch (e) {}
+    function set(c) { card.classList.toggle('collapsed', c); btn.setAttribute('aria-expanded', String(!c)); }
+    set(saved === null ? mobile : saved === '1');
+    btn.onclick = function () {
+      var c = !card.classList.contains('collapsed');
+      set(c);
+      try { localStorage.setItem(key, c ? '1' : '0'); } catch (e) {}
+    };
+  });
 
   var minD = Infinity, maxD = 0;
   locs.forEach(function (l) { l.ts.forEach(function (t) { if (t[0] < minD) minD = t[0]; if (t[0] > maxD) maxD = t[0]; }); });
@@ -272,9 +308,11 @@
   }
 
   // ---- tooltip (última transação) ----
+  // em telas de toque não existe hover: o resumo da última transação aparece no topo do painel
+  var noHover = window.matchMedia('(hover: none)').matches;
   function showTip(loc, e) {
     var t = loc.last;
-    if (!t) return;
+    if (!t || noHover) return;
     tip.innerHTML = '<div class="price">' + brl.format(t[T_VALOR]) + '</div>' +
       '<div>' + fmtDate(t[T_DATE]) + ' · ' + (t[T_AREA] > 0 ? num.format(t[T_AREA]) + ' m² construídos' : 'sem área construída') + '</div>' +
       (loc.n > 1 ? '<div class="more">Última de ' + loc.n + ' transações neste endereço · clique para ver todas</div>' : '<div class="more">Clique para ver detalhes</div>');
@@ -301,6 +339,9 @@
     var hidden = loc.ts.length - loc.n;
     document.getElementById('pMeta').textContent = loc.bairro + ' · CEP ' + loc.cep + ' · ' + loc.ts.length +
       (loc.ts.length > 1 ? ' transações' : ' transação') + (hidden ? ' (' + hidden + ' fora do filtro atual, em cinza)' : '');
+    var lt = loc.last || loc.ts[0];
+    document.getElementById('pLast').innerHTML = '<span class="lbl">Última transação</span><b>' + brl.format(lt[T_VALOR]) + '</b> · ' +
+      fmtDate(lt[T_DATE]) + ' · ' + (lt[T_AREA] > 0 ? num.format(lt[T_AREA]) + ' m² construídos' : 'sem área construída');
     var warn = document.getElementById('pWarn');
     warn.hidden = loc.prec === 0;
     warn.textContent = loc.prec === 1 ? 'Posição aproximada: número não encontrado na base do IBGE, usado o número mais próximo na mesma rua.'
@@ -315,8 +356,12 @@
         '<td>' + esc(ocupLabel(t[T_OCUP])) + '</td>' +
         '<td class="wrap">' + esc(t[T_COMPL] || '–') + '</td></tr>';
     }).join('');
+    if (mobile) tip.style.display = 'none';
+    var wasOpen = panel.classList.contains('open');
     panel.classList.add('open');
     panel.querySelector('.body').scrollTop = 0;
+    // no celular o painel cobre a parte de baixo: mantém o ponto selecionado visível acima dele
+    if (mobile && !wasOpen) map.panInside([loc.lat, loc.lon], { paddingTopLeft: [30, 70], paddingBottomRight: [30, panel.offsetHeight + 30] });
   }
   function deselect() {
     if (!selected) return;
